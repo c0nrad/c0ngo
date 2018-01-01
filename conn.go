@@ -31,6 +31,7 @@ func (c Conn) Find(db string, collection string, query bson.Document) ([]byte, e
 	q.FullCollectionName = bson.CString(db + "." + collection)
 	q.NumberToSkip = 0
 	q.NumberToReturn = 100
+	q.Query = query
 
 	data, err := q.Serialize()
 	if err != nil {
