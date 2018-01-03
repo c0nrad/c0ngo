@@ -56,8 +56,7 @@ func (c Connection) Write(q bson.Serializable, isResponse bool) ([]byte, error) 
 		return nil, err
 	}
 
-	fmt.Printf("[+] Query: %+v\n", q)
-	PrintHexArray(data)
+	// PrintHexArray(data)
 
 	_, err = c.conn.Write(data)
 	if err != nil {
@@ -116,7 +115,7 @@ func (c Connection) Find(db string, collection string, query bson.Document) (*Op
 			return nil, err
 		}
 
-		fmt.Printf("[+] Reading CompressedMessage %+v\n", message)
+		fmt.Printf("[+] Reading CompressedMessage %+v\n", compressed)
 
 		return compressed.ToOpReply()
 	} else {

@@ -17,5 +17,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(result, err)
+
+	fmt.Printf("Find %+v\n", result)
 }
