@@ -9,7 +9,7 @@ import (
 func main() {
 	fmt.Println("Driver started!")
 
-	c, err := c0ngo.NewConn("localhost")
+	c, err := c0ngo.NewConn("localhost", false)
 	if err != nil {
 		panic(err)
 	}

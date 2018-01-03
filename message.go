@@ -2,12 +2,16 @@ package c0ngo
 
 import (
 	"bytes"
+	"errors"
 
 	"github.com/c0nrad/c0ngo/bson"
+	"github.com/golang/snappy"
 )
 
-var OpCodeToIntMap = map[string]int{
-	"OP_RELY": 1,
+type WireMessage interface {
+	bson.Serializable
+
+	Header() MsgHeader
 }
 
 type MsgHeader struct {
@@ -34,6 +38,10 @@ type OpQuery struct {
 	Query              bson.Document
 }
 
+func (q OpQuery) Header() MsgHeader {
+	return q.MsgHeader
+}
+
 func (q OpQuery) Serialize() ([]byte, error) {
 	data, err := bson.SerializeArray([]bson.Serializable{&q.MsgHeader, &q.Flags, &q.FullCollectionName, &q.NumberToSkip, &q.NumberToReturn, &q.Query})
 	if err != nil {
@@ -47,6 +55,10 @@ func (q OpQuery) Serialize() ([]byte, error) {
 
 func (q *OpQuery) Deserialize(in *bytes.Reader) error {
 	return bson.DeserializeArray([]bson.Serializable{&q.MsgHeader, &q.Flags, &q.FullCollectionName, &q.NumberToSkip, &q.NumberToReturn, &q.Query}, in)
+}
+
+func (q OpQuery) OpCode() int {
+	return 2004
 }
 
 type OpInsert struct {
@@ -177,6 +189,99 @@ type OpCompressed struct {
 	UncompressedSize  bson.Int32
 	CompressorId      bson.Byte
 	CompressedMessage []byte
+}
+
+func CompressMessage(m WireMessage) (*OpCompressed, error) {
+	op := &OpCompressed{}
+
+	op.OriginalOpCode = m.Header().OpCode
+	op.MsgHeader.OpCode = 2012
+	op.MsgHeader.RequestId = 0xdead
+	op.MsgHeader.ResponseTo = 0
+
+	originalMessage, err := m.Serialize()
+	if err != nil {
+		return nil, err
+	}
+
+	op.UncompressedSize = bson.Int32(len(originalMessage)) - 16     // don't include msgheader
+	op.CompressorId = 1                                             // snappy
+	op.CompressedMessage = snappy.Encode(nil, originalMessage[16:]) // don't include msgheader
+
+	//Update message length
+	elements := []bson.Serializable{&op.MsgHeader, &op.OriginalOpCode, &op.UncompressedSize, &op.CompressorId}
+	data, err := bson.SerializeArray(elements)
+	if err != nil {
+		return nil, err
+	}
+	op.MsgHeader.MessageLength = bson.Int32(len(data) + len(op.CompressedMessage))
+
+	return op, nil
+}
+
+func (op OpCompressed) Serialize() ([]byte, error) {
+	elements := []bson.Serializable{&op.MsgHeader, &op.OriginalOpCode, &op.UncompressedSize, &op.CompressorId}
+
+	data, err := bson.SerializeArray(elements)
+	if err != nil {
+		return nil, err
+	}
+
+	op.MsgHeader.MessageLength = bson.Int32(len(data) + len(op.CompressedMessage))
+
+	out, err := bson.SerializeArray(elements)
+	if err != nil {
+		return nil, err
+	}
+
+	out = append(out, op.CompressedMessage...)
+	return out, nil
+}
+
+func (op *OpCompressed) Deserialize(in *bytes.Reader) error {
+	elements := []bson.Serializable{&op.MsgHeader, &op.OriginalOpCode, &op.UncompressedSize, &op.CompressorId}
+	err := bson.DeserializeArray(elements, in)
+
+	if err != nil {
+		return err
+	}
+
+	// the rest of the message is the compressedLength
+	compressedLength := int(op.MsgHeader.MessageLength) - (int(in.Size()) - in.Len())
+	op.CompressedMessage = make([]byte, compressedLength)
+
+	n, err := in.Read(op.CompressedMessage)
+	if err != nil {
+		return err
+	}
+
+	if n != compressedLength {
+		return errors.New("didn't read correct number of bytes")
+	}
+
+	return nil
+}
+
+func (op OpCompressed) ToOpReply() (*OpReply, error) {
+
+	// don't pass by reference :)
+	op.MsgHeader.OpCode = op.OriginalOpCode
+
+	rawReplyHeader, err := op.MsgHeader.Serialize()
+	if err != nil {
+		return nil, err
+	}
+
+	rawReplyBody, err := snappy.Decode(nil, op.CompressedMessage)
+	if err != nil {
+		return nil, err
+	}
+
+	rawReply := append(rawReplyHeader, rawReplyBody...)
+
+	out := OpReply{}
+	err = out.Deserialize(bytes.NewReader(rawReply))
+	return &out, err
 }
 
 // func (c OpCompressed) Serialize() ([]byte, error) {

@@ -16,16 +16,13 @@ func main() {
 	}
 
 	doc := bson.Document{
-		bson.NewDoubleElement("hello", 1),
+		bson.NewStringElement("hello", "world"),
 	}
 
-	result, err := c.Find("lol", "demo", doc)
+	data, err := doc.Serialize()
+	fmt.Println(data, err)
+
+	result, err := c.Insert("lol", "demo", doc)
 	fmt.Println(result, err)
 
-}
-
-func PrintHexArray(in []byte) {
-	for _, c := range in {
-		fmt.Print("%x ", c)
-	}
 }
